@@ -1,18 +1,28 @@
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect,get_object_or_404
 from django.contrib.auth import login, authenticate, logout
-from django.contrib.auth.decorators import login_required
 from .forms import SignUpForm
 from django.contrib import messages
-from .models import Booking, Car
+from django.contrib.auth.decorators import login_required
+from .models import Car, Booking
 from .forms import BookingForm
+import requests
+from django.http import JsonResponse, HttpResponseNotAllowed
 
 
 
 def home(request):
     return render(request, 'main/homepage.html')
 
-def car_details(request):
+def hyundai(request):
     return render(request, 'main/hyundai.html')  
+
+def xuv(request):
+    return render(request, 'main/xuv.html')  
+
+def honda(request):
+    return render(request, 'main/honda.html')  
+
+
 
 def suv(request):
     return render(request, 'main/suv.html')
@@ -55,13 +65,50 @@ def book_car(request, car_id):
             booking.user = request.user
             booking.car = car
             booking.save()
-            messages.success(request, 'Car booked successfully!')
-            return redirect('my_bookings')
+            messages.success(request, 'booking successfull, proceeding to pay!')
+            return redirect('initiate_payment', car_id=car.id)
     else:
         form = BookingForm()
-    return render(request, 'registration/book_car.html', {'form': form,'car':car})         
+    return render(request, 'registration/book_car.html', {'form': form, 'car': car})
 
 @login_required
 def my_bookings(request):
     bookings = Booking.objects.filter(user=request.user).order_by('-start_time')
-    return render(request, 'registration/my_bookings.html', {'bookings':bookings})                           
+    return render(request, 'registration/my_bookings.html', {'bookings': bookings})
+
+
+@login_required
+def initiate_payment(request, car_id):
+    car = get_object_or_404(Car, id=car_id)
+    
+    # Get all bookings for the user and car
+    bookings = Booking.objects.filter(car_id=car_id, user=request.user)
+
+    if not bookings:
+        # If no bookings found, handle this error
+        return redirect('my_bookings')
+
+    if request.method == 'POST':
+        amount = car.price_per_hour
+
+        for booking in bookings:
+            user_id = booking.user.id
+
+            response = requests.post('http://127.0.0.1:5000/pay', json={
+                'amount': str(amount),
+                'user_id': user_id
+            })
+
+            result = response.json()
+
+            if result['status'] == 'success':
+                messages.success(request, f'Payment successful for booking {booking.id}')
+            else:
+                messages.error(request, f'Payment failed for booking {booking.id}')
+
+        return redirect('my_bookings')
+
+    return render(request, 'registration/payment.html', {'car': car})
+
+def error(request):
+    return render(request, 'registration/error.html')
